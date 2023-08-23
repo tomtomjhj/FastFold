@@ -68,48 +68,27 @@ function! s:LeaveWin()
   endif
 endfunction
 
-" Like windo but restore the current buffer.
-" See http://vim.wikia.com/wiki/Run_a_command_in_multiple_buffers#Restoring_position
-function! s:WinDo( command )
-  " avoid errors in CmdWin
-  if exists('*getcmdwintype') && !empty(getcmdwintype())
-    return
-  endif
-  " Work around Vim bug.
-  " See https://groups.google.com/forum/#!topic/vim_dev/LLTw8JV6wKg
-  let curaltwin = winnr('#') ? winnr('#') : 1
-  let currwin=winnr()
-  if &scrollopt =~# '\<jump\>'
-    set scrollopt-=jump
-    let l:restore = 'set scrollopt+=jump'
-  endif
-  " Work around Vim bug.
-  " See https://github.com/vim/vim/issues/4622#issuecomment-508985573
-  let l:currwinwidth = &winwidth
-  let &winwidth = &winminwidth > 0 ? &winminwidth : 1
-  silent! execute 'keepjumps noautocmd windo ' . a:command
-  silent! execute 'noautocmd ' . curaltwin . 'wincmd w'
-  silent! execute 'noautocmd ' . currwin . 'wincmd w'
-  if exists('l:restore')
-    exe l:restore
-  endif
-  let &winwidth = l:currwinwidth
+function! s:UpdateWins(winnrs)
+  for w in a:winnrs
+    " query foldlevel to trigger recomputation of folds
+    call win_execute(
+          \ win_getid(w),
+          \ 'call s:LeaveWin() | if !s:Skip() | call foldlevel(1) | endif | call s:EnterWin()',
+          \ '')
+  endfor
 endfunction
 
 " WinEnter then TabEnter then BufEnter then BufWinEnter
 function! s:UpdateWin()
-  let s:curwin = winnr()
-  call s:WinDo('if winnr() is s:curwin | call s:LeaveWin() | endif')
-  call s:WinDo('if winnr() is s:curwin | call s:EnterWin() | endif')
+  call s:UpdateWins([winnr()])
 endfunction
 
 function! s:UpdateBuf(feedback)
   " skip if another session still loading
   if exists('g:SessionLoad') | return | endif
 
-  let s:curbuf = bufnr('%')
-  call s:WinDo("if bufnr('%') is s:curbuf | call s:LeaveWin() | endif")
-  call s:WinDo("if bufnr('%') is s:curbuf | call s:EnterWin() | endif")
+  let buf = bufnr('%')
+  call s:UpdateWins(filter(range(1, winnr('$')), { _, w -> winbufnr(w) == buf }))
 
   if !a:feedback | return | endif
 
@@ -124,8 +103,7 @@ function! s:UpdateTab()
   " skip if another session still loading
   if exists('g:SessionLoad') | return | endif
 
-  call s:WinDo('call s:LeaveWin()')
-  call s:WinDo('call s:EnterWin()')
+  call s:UpdateWins(range(1, winnr('$')))
 endfunction
 
 function! s:Skip()
